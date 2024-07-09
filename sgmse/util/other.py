@@ -1,19 +1,14 @@
 import os
-
+import torch
 import numpy as np
-
 import scipy.stats
 from scipy.signal import butter, sosfilt
-
-import torch
 
 from pesq import pesq
 from pystoi import stoi
 
 
 def si_sdr_components(s_hat, s, n):
-    """
-    """
     # s_target
     alpha_s = np.dot(s_hat, s) / np.linalg.norm(s)**2
     s_target = alpha_s * s
@@ -28,8 +23,6 @@ def si_sdr_components(s_hat, s, n):
     return s_target, e_noise, e_art
 
 def energy_ratios(s_hat, s, n):
-    """
-    """
     s_target, e_noise, e_art = si_sdr_components(s_hat, s, n)
 
     si_sdr = 10*np.log10(np.linalg.norm(s_target)**2 / np.linalg.norm(e_noise + e_art)**2)
@@ -80,15 +73,21 @@ def snr_dB(s,n):
     snr_dB = 10*np.log10(s_power/n_power)
     return snr_dB
 
-def pad_spec(Y):
+def pad_spec(Y, mode="zero_pad"):
     T = Y.size(3)
     if T%64 !=0:
         num_pad = 64-T%64
     else:
         num_pad = 0
-    pad2d = torch.nn.ZeroPad2d((0, num_pad, 0,0))
+    if mode == "zero_pad":
+        pad2d = torch.nn.ZeroPad2d((0, num_pad, 0,0))
+    elif mode == "reflection":
+        pad2d = torch.nn.ReflectionPad2d((0, num_pad, 0,0))
+    elif mode == "replication":
+        pad2d = torch.nn.ReplicationPad2d((0, num_pad, 0,0))
+    else:
+        raise NotImplementedError("This function hasn't been implemented yet.")
     return pad2d(Y)
-
 
 def ensure_dir(file_path):
     directory = file_path
@@ -123,3 +122,20 @@ def print_mean_std(data, decimal=2):
     elif decimal == 1:
         string = f'{mean:.1f} ± {std:.1f}'
     return string
+
+def set_torch_cuda_arch_list():
+    if not torch.cuda.is_available():
+        print("CUDA is not available. No GPUs found.")
+        return
+    
+    num_gpus = torch.cuda.device_count()
+    compute_capabilities = []
+
+    for i in range(num_gpus):
+        cc_major, cc_minor = torch.cuda.get_device_capability(i)
+        cc = f"{cc_major}.{cc_minor}"
+        compute_capabilities.append(cc)
+    
+    cc_string = ";".join(compute_capabilities)
+    os.environ['TORCH_CUDA_ARCH_LIST'] = cc_string
+    print(f"Set TORCH_CUDA_ARCH_LIST to: {cc_string}")

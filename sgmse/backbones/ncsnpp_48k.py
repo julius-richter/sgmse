@@ -33,17 +33,20 @@ get_normalization = normalization.get_normalization
 default_initializer = layers.default_init
 
 
-@BackboneRegistry.register("ncsnpp")
-class NCSNpp(nn.Module):
+@BackboneRegistry.register("ncsnpp_48k")
+class NCSNpp_48k(nn.Module):
     """NCSN++ model, adapted from https://github.com/yang-song/score_sde repository"""
 
     @staticmethod
     def add_argparse_args(parser):
         parser.add_argument("--ch_mult",type=int, nargs='+', default=[1,1,2,2,2,2,2])
         parser.add_argument("--num_res_blocks", type=int, default=2)
-        parser.add_argument("--attn_resolutions", type=int, nargs='+', default=[16])
+        parser.add_argument("--attn_resolutions", type=int, nargs='+', default=[])
+        parser.add_argument("--nf", type=int, default=128, help="Number of channels to use in the model")
         parser.add_argument("--no-centered", dest="centered", action="store_false", help="The data is not centered [-1, 1]")
         parser.add_argument("--centered", dest="centered", action="store_true", help="The data is centered [-1, 1]")
+        parser.add_argument("--progressive", type=str, default='none', help="Progressive downsampling method")
+        parser.add_argument("--progressive_input", type=str, default='none', help="Progressive upsampling method")
         parser.set_defaults(centered=True)
         return parser
 
@@ -53,15 +56,15 @@ class NCSNpp(nn.Module):
         nf = 128,
         ch_mult = (1, 1, 2, 2, 2, 2, 2),
         num_res_blocks = 2,
-        attn_resolutions = (16,),
+        attn_resolutions = (),
         resamp_with_conv = True,
         conditional = True,
         fir = True,
         fir_kernel = [1, 3, 3, 1],
         skip_rescale = True,
         resblock_type = 'biggan',
-        progressive = 'output_skip',
-        progressive_input = 'input_skip',
+        progressive = 'none',
+        progressive_input = 'none',
         progressive_combine = 'sum',
         init_scale = 0.,
         fourier_scale = 16,
@@ -77,7 +80,7 @@ class NCSNpp(nn.Module):
         self.nf = nf = nf
         ch_mult = ch_mult
         self.num_res_blocks = num_res_blocks = num_res_blocks
-        self.attn_resolutions = attn_resolutions = attn_resolutions
+        self.attn_resolutions = attn_resolutions
         dropout = dropout
         resamp_with_conv = resamp_with_conv
         self.num_resolutions = num_resolutions = len(ch_mult)
@@ -408,12 +411,14 @@ class NCSNpp(nn.Module):
             m_idx += 1
 
         assert m_idx == len(modules), "Implementation error"
+        
+        # Convert back to complex number
+        h = self.output_layer(h)
+
         if self.scale_by_sigma:
             used_sigmas = used_sigmas.reshape((x.shape[0], *([1] * len(x.shape[1:]))))
             h = h / used_sigmas
 
-        # Convert back to complex number
-        h = self.output_layer(h)
         h = torch.permute(h, (0, 2, 3, 1)).contiguous()
         h = torch.view_as_complex(h)[:,None, :, :]
         return h
